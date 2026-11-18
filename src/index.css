@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+:root {
+  --bg-app: #121417;
+  --bg-panel: #191c21;
+  --bg-surface: #21252c;
+  --bg-elevated: #282d36;
+  --bg-canvas: #0d0f12;
+  --border-subtle: #2b303a;
+  --border-strong: #3c4350;
+  --text-primary: #f1f3f5;
+  --text-secondary: #a1a9b8;
+  --text-muted: #6f7785;
+  --accent-amber: #d9822b;
+  --accent-amber-soft: rgba(217, 130, 43, 0.14);
+  --accent-cobalt: #3b82f6;
+  --accent-cobalt-soft: rgba(59, 130, 246, 0.14);
+  --status-pass: #18a974;
+  --status-warn: #e5a93b;
+  --status-fail: #e04f5f;
+}
+
+.theme-light {
+  --bg-app: #eef0f3;
+  --bg-panel: #ffffff;
+  --bg-surface: #f6f7f9;
+  --bg-elevated: #eceff4;
+  --bg-canvas: #dde1e7;
+  --border-subtle: #dde2ea;
+  --border-strong: #c5ccd8;
+  --text-primary: #15181e;
+  --text-secondary: #4e5665;
+  --text-muted: #7e8695;
+  --accent-amber: #c26d18;
+  --accent-amber-soft: rgba(194, 109, 24, 0.12);
+  --accent-cobalt: #2563eb;
+  --accent-cobalt-soft: rgba(37, 99, 235, 0.1);
+  --status-pass: #128a5d;
+  --status-warn: #c78617;
+  --status-fail: #cc3a4a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono-cad {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom precision scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Studio canvas dot backdrop */
+.studio-canvas-bg {
+  background-color: var(--bg-canvas);
+  background-image: radial-gradient(var(--border-subtle) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Checkerboard for transparent cutout object previews */
+.checkerboard-bg {
+  background-color: #242830;
+  background-image:
+    linear-gradient(45deg, #2d323d 25%, transparent 25%),
+    linear-gradient(-45deg, #2d323d 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2d323d 75%),
+    linear-gradient(-45deg, transparent 75%, #2d323d 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+}
+
+.theme-light .checkerboard-bg {
+  background-color: #f3f4f6;
+  background-image:
+    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+}
+
+/* Print / PDF Proposal Layout */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #111827 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only-proposal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+}
