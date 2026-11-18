@@ -2,11 +2,11 @@ import React from 'react';
 import {
   Camera,
   Check,
-  Cpu,
   FileDown,
   History,
   Moon,
   Redo2,
+  Settings,
   Sun,
   Undo2,
 } from 'lucide-react';
@@ -259,17 +259,33 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           type="button"
           onClick={onOpenAiSettings}
-          title="AI 管線服務設定 (VLM / Diffusion / LLM)"
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer"
+          title="API 設定與 Gemini 金鑰管理"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap"
           style={{
             backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
-            color: 'var(--text-secondary)',
+            borderColor:
+              aiConfig.geminiStatus === 'connected'
+                ? 'rgba(24, 169, 116, 0.45)'
+                : aiConfig.geminiStatus === 'error'
+                  ? 'rgba(224, 79, 95, 0.45)'
+                  : 'var(--border-subtle)',
+            color: 'var(--text-primary)',
           }}
         >
-          <Cpu className="w-3.5 h-3.5" />
-          <span className="font-mono-cad text-[11px]">
-            {aiConfig.mode === 'live' ? 'LIVE API' : 'MOCK AI'}
+          <span
+            className="w-2 h-2 rounded-full shrink-0"
+            style={{
+              backgroundColor:
+                aiConfig.geminiStatus === 'connected'
+                  ? 'var(--status-pass)'
+                  : aiConfig.geminiStatus === 'error'
+                    ? 'var(--status-fail)'
+                    : 'var(--status-warn)',
+            }}
+          />
+          <Settings className="w-3.5 h-3.5 shrink-0" />
+          <span className="text-[11px] font-medium whitespace-nowrap">
+            API 設定
           </span>
         </button>
 

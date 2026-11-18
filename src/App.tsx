@@ -7,7 +7,7 @@ import { AiSettingsModal } from './components/modals/AiSettingsModal';
 import { ProposalPreviewModal } from './components/modals/ProposalPreviewModal';
 import { VersionHistoryModal } from './components/modals/VersionHistoryModal';
 import { usePlannerStore } from './state/usePlannerStore';
-import { exportProjectJson } from './utils/proposalExport';
+import { exportBomCsv, exportProjectJson } from './utils/proposalExport';
 
 export function App() {
   const {
@@ -88,6 +88,7 @@ export function App() {
             layers={state.layers}
             roomImageUrl={state.present.roomImageUrl}
             renderedImageUrl={state.present.renderedImageUrl}
+            renderedByGemini={state.present.renderedByGemini}
             hasGenerated={state.present.hasGenerated}
             mode={state.present.mode}
             calibration={state.present.calibration}
@@ -126,6 +127,9 @@ export function App() {
           bomSummary={bomSummary}
           actions={actions}
           onOpenProposal={() => setProposalOpen(true)}
+          onExportCsv={() =>
+            exportBomCsv(state.present, ergonomicsReport, bomSummary)
+          }
           onExportJson={() =>
             exportProjectJson(state.present, ergonomicsReport, bomSummary)
           }

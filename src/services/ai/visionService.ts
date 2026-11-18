@@ -1,4 +1,13 @@
-import type { AiServiceConfig, ProtectionMask, RoomPreset } from '../../types/planner';
+import type {
+  AiServiceConfig,
+  ProtectionMask,
+  RoomPreset,
+  ScaleCalibration,
+} from '../../types/planner';
+import {
+  analyzeSpaceAndConstraints,
+  getStoredGeminiApiKey,
+} from '../geminiService';
 import type { IVisionService, VisionDetectionResult } from './interfaces';
 
 export class VisionService implements IVisionService {
@@ -9,12 +18,34 @@ export class VisionService implements IVisionService {
   }
 
   async detectRoomElements(
-    _imageUrl: string,
-    presetHint?: RoomPreset
+    imageUrl: string,
+    presetHint?: RoomPreset,
+    calibrationHint?: ScaleCalibration,
+    customPrompt = ''
   ): Promise<VisionDetectionResult> {
-    // Live VLM API hook when configured
-    if (this.config.mode === 'live' && this.config.visionApiKey) {
-      // Production integration point for VLM bounding box & segmentation endpoint
+    if (getStoredGeminiApiKey() && (!presetHint || this.config.mode === 'live')) {
+      const analysis = await analyzeSpaceAndConstraints(
+        imageUrl,
+        calibrationHint || {
+          roomWidthCm: 340,
+          roomDepthCm: 420,
+          ceilingHeightCm: 275,
+          pxPerCm: 2.5,
+        },
+        customPrompt
+      );
+      if (
+        analysis.source === 'gemini' &&
+        (analysis.furniture.length > 0 || analysis.autoMasks.length > 0)
+      ) {
+        return {
+          furniture: analysis.furniture,
+          autoMasks:
+            analysis.autoMasks.length > 0
+              ? analysis.autoMasks
+              : await this.detectProtectionZones(imageUrl, presetHint),
+        };
+      }
     }
 
     if (presetHint) {
@@ -24,7 +55,7 @@ export class VisionService implements IVisionService {
       };
     }
 
-    // Generic heuristic detection for newly uploaded custom photos
+    // Fallback heuristic detection for newly uploaded custom photos when no API key is configured
     return {
       furniture: [
         {
@@ -32,7 +63,14 @@ export class VisionService implements IVisionService {
           name: '偵測主座椅 / 沙發區',
           category: 'sofa',
           bbox: { x: 0.1, y: 0.52, w: 0.34, h: 0.34 },
-          floorRect: { xCm: 15, yCm: 165, wCm: 90, dCm: 200, hCm: 80, rotationDeg: 90 },
+          floorRect: {
+            xCm: 15,
+            yCm: 165,
+            wCm: 90,
+            dCm: 200,
+            hCm: 80,
+            rotationDeg: 90,
+          },
           locked: false,
           color: '#64748b',
         },
@@ -41,19 +79,43 @@ export class VisionService implements IVisionService {
           name: '偵測中央茶几 / 桌體',
           category: 'coffee_table',
           bbox: { x: 0.41, y: 0.62, w: 0.18, h: 0.18 },
-          floorRect: { xCm: 138, yCm: 215, wCm: 60, dCm: 100, hCm: 44, rotationDeg: 90 },
+          floorRect: {
+            xCm: 138,
+            yCm: 215,
+            wCm: 60,
+            dCm: 100,
+            hCm: 44,
+            rotationDeg: 90,
+          },
           locked: false,
           color: '#85583a',
         },
       ],
-      autoMasks: await this.detectProtectionZones(_imageUrl, undefined),
+      autoMasks: await this.detectProtectionZones(imageUrl, undefined),
     };
   }
 
   async detectProtectionZones(
-    _imageUrl: string,
-    presetHint?: RoomPreset
+    imageUrl: string,
+    presetHint?: RoomPreset,
+    calibrationHint?: ScaleCalibration
   ): Promise<ProtectionMask[]> {
+    if (getStoredGeminiApiKey() && this.config.mode === 'live') {
+      const analysis = await analyzeSpaceAndConstraints(
+        imageUrl,
+        calibrationHint || {
+          roomWidthCm: 340,
+          roomDepthCm: 420,
+          ceilingHeightCm: 275,
+          pxPerCm: 2.5,
+        },
+        '辨識結構樑柱、對外窗戶採光面、冷氣室內機出風口、配電箱與插座點位'
+      );
+      if (analysis.source === 'gemini' && analysis.autoMasks.length > 0) {
+        return analysis.autoMasks;
+      }
+    }
+
     if (presetHint) {
       return structuredClone(presetHint.autoProtectionMasks);
     }

@@ -1,23 +1,29 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
   Calculator,
   CheckSquare,
+  ExternalLink,
   FileDown,
   FileJson,
+  FileSpreadsheet,
   RefreshCw,
   ShoppingBag,
+  Sparkles,
   Square,
 } from 'lucide-react';
 import type { BomSummary, MatchedProduct } from '../../types/planner';
+import type { CsvExportResult } from '../../utils/proposalExport';
 
 interface Step4ProcurementPanelProps {
   matchedProducts: MatchedProduct[];
   bomSummary: BomSummary;
+  geminiStatusNote?: string | null;
   onRefreshProductSearch: () => void;
   onToggleProductInBom: (id: string) => void;
   onExportProposalPdf: () => void;
+  onExportCsv: () => Promise<CsvExportResult | void> | void;
   onExportJson: () => void;
   onPrevStep: () => void;
 }
@@ -25,15 +31,59 @@ interface Step4ProcurementPanelProps {
 export const Step4ProcurementPanel: React.FC<Step4ProcurementPanelProps> = ({
   matchedProducts,
   bomSummary,
+  geminiStatusNote,
   onRefreshProductSearch,
   onToggleProductInBom,
   onExportProposalPdf,
+  onExportCsv,
   onExportJson,
   onPrevStep,
 }) => {
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+
+  const handleExportCsvClick = async () => {
+    setIsExportingCsv(true);
+    setExportFeedback(null);
+    try {
+      const res = await onExportCsv();
+      if (res && res.method === 'native_share') {
+        setExportFeedback(`已儲存並開啟系統分享選單：${res.fileName}`);
+      } else if (res) {
+        setExportFeedback(`已下載 UTF-8 BOM 預算表：${res.fileName}`);
+      } else {
+        setExportFeedback('已完成 UTF-8 BOM 預算分析表匯出');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/cancel/i.test(msg)) {
+        setExportFeedback(`匯出未完成：${msg}`);
+      }
+    } finally {
+      setIsExportingCsv(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
+        {geminiStatusNote && (
+          <div
+            className="p-2.5 rounded-xl border text-[11px] flex items-start gap-2 leading-relaxed"
+            style={{
+              backgroundColor: 'var(--accent-cobalt-soft)',
+              borderColor: 'var(--accent-cobalt)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <Sparkles
+              className="w-3.5 h-3.5 shrink-0 mt-0.5"
+              style={{ color: 'var(--accent-cobalt)' }}
+            />
+            <span>{geminiStatusNote}</span>
+          </div>
+        )}
+
         {/* 1. Visual Search & Product Matching (Feature 10) */}
         <section
           className="rounded-xl border p-3.5 space-y-3"
@@ -120,16 +170,42 @@ export const Step4ProcurementPanel: React.FC<Step4ProcurementPanelProps> = ({
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center justify-between mt-1.5">
+                    <div className="flex items-center justify-between gap-2 mt-1.5">
                       <span
-                        className="text-[10px]"
+                        className="text-[10px] truncate"
                         style={{ color: 'var(--text-secondary)' }}
                       >
                         對應位置：{prod.targetSlotLabel}
                       </span>
-                      <span className="text-xs font-mono-cad font-semibold text-amber-400">
+                      <span className="text-xs font-mono-cad font-semibold text-amber-400 shrink-0">
                         NT$ {prod.priceTWD.toLocaleString()}
                       </span>
+                    </div>
+                    <div
+                      className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t"
+                      style={{ borderColor: 'var(--border-subtle)' }}
+                    >
+                      <span
+                        className="text-[10px] truncate"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        關鍵字：{prod.searchKeyword || prod.name}
+                      </span>
+                      <a
+                        href={prod.searchUrl || prod.urlSlug}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded border hover:opacity-85 shrink-0"
+                        style={{
+                          borderColor: 'var(--accent-cobalt)',
+                          color: 'var(--accent-cobalt)',
+                          backgroundColor: 'var(--accent-cobalt-soft)',
+                        }}
+                      >
+                        <span>前往搜尋比價</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
                     </div>
                   </div>
                 </div>
@@ -146,13 +222,13 @@ export const Step4ProcurementPanel: React.FC<Step4ProcurementPanelProps> = ({
             borderColor: 'var(--border-subtle)',
           }}
         >
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold flex items-center gap-1.5">
-              <Calculator className="w-4 h-4 text-blue-400" />
-              <span>粗估工程與軟裝 BOM 預算（功能 11）</span>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xs font-semibold flex items-center gap-1.5 min-w-0 truncate">
+              <Calculator className="w-4 h-4 text-blue-400 shrink-0" />
+              <span className="truncate">粗估工程與軟裝 BOM 預算</span>
             </h2>
             <span
-              className="text-[10px] font-mono-cad"
+              className="text-[10px] font-mono-cad whitespace-nowrap shrink-0"
               style={{ color: 'var(--text-muted)' }}
             >
               地坪 {bomSummary.roomAreaPing} 坪 · 牆 {bomSummary.wallAreaPing} 坪
@@ -258,6 +334,31 @@ export const Step4ProcurementPanel: React.FC<Step4ProcurementPanelProps> = ({
           backgroundColor: 'var(--bg-panel)',
         }}
       >
+        {exportFeedback && (
+          <div
+            className="px-2.5 py-1.5 rounded-lg border text-[11px] text-emerald-400"
+            style={{
+              backgroundColor: 'rgba(24,169,116,0.1)',
+              borderColor: 'rgba(24,169,116,0.35)',
+            }}
+          >
+            {exportFeedback}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={handleExportCsvClick}
+          disabled={isExportingCsv}
+          className="w-full py-2.5 px-4 rounded-xl font-semibold text-xs text-white flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-60"
+          style={{ backgroundColor: 'var(--accent-cobalt)' }}
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          <span>
+            {isExportingCsv
+              ? '正在寫入 UTF-8 CSV 預算表...'
+              : '一鍵輸出 BOM 預算分析表 (CSV / 原生分享)'}
+          </span>
+        </button>
         <button
           type="button"
           onClick={onExportProposalPdf}

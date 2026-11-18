@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ArrowRight,
   Brush,
+  Camera,
   Grid,
   Pentagon,
   Ruler,
@@ -24,6 +25,10 @@ import type {
   ScaleCalibration,
 } from '../../types/planner';
 import { readImageFile } from '../../utils/imageProcessing';
+import {
+  isNativeCapacitor,
+  pickPhotoWithCapacitor,
+} from '../../utils/nativePlatform';
 
 interface Step1CalibrationPanelProps {
   activeRoomId: string;
@@ -61,13 +66,38 @@ export const Step1CalibrationPanel: React.FC<Step1CalibrationPanelProps> = ({
   onNextStep,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setCameraError(null);
     const result = await readImageFile(file);
     onUploadRoom(result.dataUrl, file.name, result.widthPx, result.heightPx);
     e.target.value = '';
+  };
+
+  const handleNativeCameraOrGallery = async (source: 'camera' | 'photos') => {
+    setCameraError(null);
+    // On desktop browsers, regular upload opens file picker directly for zero-friction UX
+    if (source === 'photos' && !isNativeCapacitor()) {
+      fileInputRef.current?.click();
+      return;
+    }
+    try {
+      const picked = await pickPhotoWithCapacitor(source);
+      if (picked.cancelled || !picked.dataUrl) return;
+      onUploadRoom(
+        picked.dataUrl,
+        picked.fileName,
+        picked.widthPx,
+        picked.heightPx
+      );
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : '無法啟動相機或存取相簿';
+      setCameraError(msg);
+    }
   };
 
   const handlePresetCalChange = (presetId: CalibrationPresetId) => {
@@ -85,23 +115,42 @@ export const Step1CalibrationPanel: React.FC<Step1CalibrationPanelProps> = ({
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         {/* 1. Room Import & Presets */}
         <section className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
+          <div className="flex items-center justify-between gap-2">
+            <h2
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--text-secondary)' }}
+            >
               1. 匯入室內現況照片
             </h2>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition-colors"
-              style={{
-                backgroundColor: 'var(--accent-amber-soft)',
-                borderColor: 'var(--accent-amber)',
-                color: 'var(--accent-amber)',
-              }}
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>上傳實景照</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleNativeCameraOrGallery('camera')}
+                title="使用手機相機現場拍攝室內照片"
+                className="flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-medium cursor-pointer transition-colors"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-strong)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                <Camera className="w-3.5 h-3.5 text-amber-400" />
+                <span>拍照</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNativeCameraOrGallery('photos')}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition-colors"
+                style={{
+                  backgroundColor: 'var(--accent-amber-soft)',
+                  borderColor: 'var(--accent-amber)',
+                  color: 'var(--accent-amber)',
+                }}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>上傳實景照</span>
+              </button>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -110,6 +159,11 @@ export const Step1CalibrationPanel: React.FC<Step1CalibrationPanelProps> = ({
               className="hidden"
             />
           </div>
+          {cameraError && (
+            <div className="p-2 rounded-lg border border-red-500/40 bg-red-500/10 text-[11px] text-red-300">
+              {cameraError}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             {ROOM_PRESETS.map((preset) => {

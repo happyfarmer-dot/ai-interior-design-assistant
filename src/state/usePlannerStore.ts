@@ -12,10 +12,21 @@ import {
 } from '../services/ai/productSearchService';
 import { RenderingService } from '../services/ai/renderingService';
 import { VisionService } from '../services/ai/visionService';
+import {
+  analyzeSpaceAndConstraints,
+  generateBomAndShoppingList,
+  generateInteriorRender,
+  getStoredGeminiApiKey,
+  renderProtectionMasksToPngBase64,
+} from '../services/geminiService';
 import { evaluateErgonomics } from '../services/physics/ergonomicsEngine';
-import { computeScaleFromCalibration } from '../services/physics/scaleEngine';
+import {
+  estimateFloorAreaPing,
+  computeScaleFromCalibration,
+} from '../services/physics/scaleEngine';
 import type {
   AiServiceConfig,
+  BomLineItem,
   BomSummary,
   CanvasTool,
   DesignConstraints,
@@ -96,7 +107,10 @@ function createDesignStateFromPreset(preset: RoomPreset): PlannerDesignState {
     },
     hasGenerated: false,
     renderedImageUrl: null,
+    renderedByGemini: false,
+    geminiStatusNote: null,
     matchedProducts: [],
+    geminiBomItems: null,
   };
 }
 
@@ -401,6 +415,7 @@ export function usePlannerStore() {
       constraints: state.present.constraints,
       matchedProducts: state.present.matchedProducts,
       mode: state.present.mode,
+      geminiBomItems: state.present.geminiBomItems,
     });
   }, [
     state.present.calibration,
@@ -409,6 +424,7 @@ export function usePlannerStore() {
     state.present.constraints,
     state.present.matchedProducts,
     state.present.mode,
+    state.present.geminiBomItems,
   ]);
 
   // Actions
@@ -475,63 +491,77 @@ export function usePlannerStore() {
 
   const loadUploadedRoom = useCallback(
     async (fileDataUrl: string, fileName: string, w: number, h: number) => {
+      const hasKey = Boolean(getStoredGeminiApiKey());
       dispatch({
         type: 'SET_PROCESSING',
         isProcessing: true,
-        message: '正在透過視覺辨識管線解析空間傢俱與機電保護點位...',
+        message: hasKey
+          ? '正在透過 Gemini 2.5 Flash 視覺解析空間傢俱與機電保護點位...'
+          : '正在透過本地視覺演算解析空間傢俱與機電保護點位...',
       });
-      const vision = new VisionService(state.aiConfig);
-      const result = await vision.detectRoomElements(fileDataUrl);
+      try {
+        const defaultCal: ScaleCalibration = {
+          p1: { x: 0.85, y: 0.16 },
+          p2: { x: 0.85, y: 0.88 },
+          knownCm: 210,
+          presetId: 'door_210',
+          imageWidthPx: w,
+          imageHeightPx: h,
+          pxPerCm: Number(((0.72 * h) / 210).toFixed(2)),
+          roomWidthCm: 340,
+          roomDepthCm: 420,
+          ceilingHeightCm: 275,
+          vanishingPoint: { x: 0.5, y: 0.44 },
+          horizonY: 0.44,
+          showPerspectiveGrid: false,
+          calibrated: true,
+        };
+        const computedCal = computeScaleFromCalibration(defaultCal);
+        const vision = new VisionService(state.aiConfig);
+        const result = await vision.detectRoomElements(
+          fileDataUrl,
+          undefined,
+          computedCal,
+          state.present.promptText
+        );
 
-      const defaultCal: ScaleCalibration = {
-        p1: { x: 0.85, y: 0.16 },
-        p2: { x: 0.85, y: 0.88 },
-        knownCm: 210,
-        presetId: 'door_210',
-        imageWidthPx: w,
-        imageHeightPx: h,
-        pxPerCm: Number(((0.72 * h) / 210).toFixed(2)),
-        roomWidthCm: 340,
-        roomDepthCm: 420,
-        ceilingHeightCm: 275,
-        vanishingPoint: { x: 0.5, y: 0.44 },
-        horizonY: 0.44,
-        showPerspectiveGrid: false,
-        calibrated: true,
-      };
-
-      dispatch({
-        type: 'MUTATE_DESIGN',
-        updater: (prev) => ({
-          ...prev,
-          activeRoomId: `custom_${Date.now()}`,
-          roomName: fileName.replace(/\.[^.]+$/, ''),
-          roomImageUrl: fileDataUrl,
-          calibration: computeScaleFromCalibration(defaultCal),
-          protectionMasks: result.autoMasks,
-          detectedFurniture: result.furniture,
-          doorSwings: [
-            {
-              id: 'custom_door',
-              label: '入口房門開啟半徑 (85cm)',
-              hingeXCm: 340,
-              hingeYCm: 345,
-              radiusCm: 85,
-              startAngleDeg: 90,
-              endAngleDeg: 180,
-            },
-          ],
-          hasGenerated: false,
-          renderedImageUrl: null,
-          rearrangementVariants: [],
-          activeVariantId: null,
-          placementZones: [],
-          selectedZoneId: null,
-        }),
-      });
-      dispatch({ type: 'SET_PROCESSING', isProcessing: false });
+        dispatch({
+          type: 'MUTATE_DESIGN',
+          updater: (prev) => ({
+            ...prev,
+            activeRoomId: `custom_${Date.now()}`,
+            roomName: fileName.replace(/\.[^.]+$/, ''),
+            roomImageUrl: fileDataUrl,
+            calibration: computedCal,
+            protectionMasks: result.autoMasks,
+            detectedFurniture: result.furniture,
+            doorSwings: [
+              {
+                id: 'custom_door',
+                label: '入口房門開啟半徑 (85cm)',
+                hingeXCm: 340,
+                hingeYCm: 345,
+                radiusCm: 85,
+                startAngleDeg: 90,
+                endAngleDeg: 180,
+              },
+            ],
+            hasGenerated: false,
+            renderedImageUrl: null,
+            renderedByGemini: false,
+            geminiStatusNote: null,
+            rearrangementVariants: [],
+            activeVariantId: null,
+            placementZones: [],
+            selectedZoneId: null,
+            geminiBomItems: null,
+          }),
+        });
+      } finally {
+        dispatch({ type: 'SET_PROCESSING', isProcessing: false });
+      }
     },
-    [state.aiConfig]
+    [state.aiConfig, state.present.promptText]
   );
 
   const updateCalibration = useCallback(
@@ -584,25 +614,36 @@ export function usePlannerStore() {
     dispatch({
       type: 'SET_PROCESSING',
       isProcessing: true,
-      message: 'AI 正在掃描結構樑柱、對外窗戶、冷氣與配電箱...',
+      message: getStoredGeminiApiKey()
+        ? 'Gemini 2.5 Flash 正在掃描結構樑柱、對外窗戶、冷氣與配電箱...'
+        : 'AI 正在掃描結構樑柱、對外窗戶、冷氣與配電箱...',
     });
-    const vision = new VisionService(state.aiConfig);
-    const preset = ROOM_PRESETS.find(
-      (r) => r.id === state.present.activeRoomId
-    );
-    const detected = await vision.detectProtectionZones(
-      state.present.roomImageUrl,
-      preset
-    );
-    dispatch({
-      type: 'MUTATE_DESIGN',
-      updater: (prev) => ({
-        ...prev,
-        protectionMasks: detected,
-      }),
-    });
-    dispatch({ type: 'SET_PROCESSING', isProcessing: false });
-  }, [state.aiConfig, state.present.activeRoomId, state.present.roomImageUrl]);
+    try {
+      const vision = new VisionService(state.aiConfig);
+      const preset = ROOM_PRESETS.find(
+        (r) => r.id === state.present.activeRoomId
+      );
+      const detected = await vision.detectProtectionZones(
+        state.present.roomImageUrl,
+        preset,
+        state.present.calibration
+      );
+      dispatch({
+        type: 'MUTATE_DESIGN',
+        updater: (prev) => ({
+          ...prev,
+          protectionMasks: detected,
+        }),
+      });
+    } finally {
+      dispatch({ type: 'SET_PROCESSING', isProcessing: false });
+    }
+  }, [
+    state.aiConfig,
+    state.present.activeRoomId,
+    state.present.roomImageUrl,
+    state.present.calibration,
+  ]);
 
   const setMode = useCallback((mode: DesignMode) => {
     dispatch({
@@ -848,7 +889,19 @@ export function usePlannerStore() {
       const parser = new ConstraintParserService(state.aiConfig);
       const pText = promptOverride ?? state.present.promptText;
       const tList = tagsOverride ?? state.present.selectedTags;
-      const parsed = await parser.parsePromptToConstraints(pText, tList);
+
+      let parsed = await parser.parsePromptToConstraints(pText, tList);
+      if (getStoredGeminiApiKey()) {
+        const gem = await analyzeSpaceAndConstraints(
+          state.present.roomImageUrl,
+          state.present.calibration,
+          { promptText: pText, selectedTags: tList }
+        );
+        if (gem.source === 'gemini') {
+          parsed = gem.constraints;
+        }
+      }
+
       dispatch({
         type: 'MUTATE_DESIGN',
         updater: (prev) => ({
@@ -860,7 +913,13 @@ export function usePlannerStore() {
       });
       return parsed;
     },
-    [state.aiConfig, state.present.promptText, state.present.selectedTags]
+    [
+      state.aiConfig,
+      state.present.promptText,
+      state.present.selectedTags,
+      state.present.roomImageUrl,
+      state.present.calibration,
+    ]
   );
 
   const updateLighting = useCallback((patch: Partial<LightingState>) => {
@@ -924,133 +983,244 @@ export function usePlannerStore() {
 
   /**
    * Master AI Simulation Execution Pipeline (Step 2 -> Step 3)
+   * Automatically uses real @google/genai models when USER_GEMINI_API_KEY is present,
+   * and falls back seamlessly to local Canvas/physics simulation otherwise.
    */
   const executeSimulationPipeline = useCallback(async () => {
     const p = state.present;
+    const hasGeminiKey = Boolean(getStoredGeminiApiKey());
     dispatch({
       type: 'SET_PROCESSING',
       isProcessing: true,
-      message:
-        p.mode === 'rearrange'
+      message: hasGeminiKey
+        ? p.mode === 'rearrange'
+          ? 'Gemini 2.5 Flash 正在運算空間重排動線，並呼叫影像模型同步重繪模擬...'
+          : p.mode === 'style'
+            ? `Gemini 影像模型正在渲染「${DESIGN_STYLES.find((s) => s.id === p.styleId)?.name || '北歐簡約'}」真實空間模擬圖...`
+            : 'Gemini 正在結合結構保護遮罩與物理尺寸進行單品透視合成...'
+        : p.mode === 'rearrange'
           ? '正在運算 3 組空間重排配置、採光動線與人體工學物理檢核...'
           : p.mode === 'style'
             ? `正在保留透視幾何並渲染「${DESIGN_STYLES.find((s) => s.id === p.styleId)?.name || '北歐簡約'}」模擬圖...`
             : '正在執行物件去背透視合成、光影融合與物理尺度校驗...',
     });
 
-    const parser = new ConstraintParserService(state.aiConfig);
-    const parsedConstraints = await parser.parsePromptToConstraints(
-      p.promptText,
-      p.selectedTags
-    );
+    try {
+      const parser = new ConstraintParserService(state.aiConfig);
+      let parsedConstraints = await parser.parsePromptToConstraints(
+        p.promptText,
+        p.selectedTags
+      );
 
-    const renderer = new RenderingService(state.aiConfig);
-    const preset = ROOM_PRESETS.find((r) => r.id === p.activeRoomId);
+      const renderer = new RenderingService(state.aiConfig);
+      const preset = ROOM_PRESETS.find((r) => r.id === p.activeRoomId);
 
-    let variants: RearrangementVariant[] = p.rearrangementVariants;
-    let activeVariantId = p.activeVariantId;
-    let renderedImageUrl = p.renderedImageUrl || p.roomImageUrl;
-    let placementZones: PlacementZone[] = p.placementZones;
-    let selectedZoneId = p.selectedZoneId;
-    let newObjPrepared = p.newObject;
+      let variants: RearrangementVariant[] = p.rearrangementVariants;
+      let activeVariantId = p.activeVariantId;
+      let renderedImageUrl: string = p.renderedImageUrl || p.roomImageUrl;
+      let renderedByGemini = false;
+      let placementZones: PlacementZone[] = p.placementZones;
+      let selectedZoneId = p.selectedZoneId;
+      let newObjPrepared = p.newObject;
+      let geminiBomItems: BomLineItem[] | null = null;
+      let geminiStatusNote: string | null = null;
 
-    if (p.mode === 'rearrange') {
-      variants = await renderer.generateRearrangements({
-        baseFurniture: p.detectedFurniture,
-        calibration: p.calibration,
-        masks: p.protectionMasks,
-        constraints: parsedConstraints,
-        goal: p.rearrangementGoal,
-      });
-      activeVariantId = variants[0]?.id ?? null;
-      // Also render clean light style refresh or keep room image
-      renderedImageUrl = p.roomImageUrl;
-    } else if (p.mode === 'style') {
-      const styleRes = await renderer.renderStyleTransfer({
-        roomImageUrl: p.roomImageUrl,
-        preset,
-        styleId: p.styleId,
-        styleIntensity: p.styleIntensity,
-        appliedMaterials: p.appliedMaterials,
-      });
-      renderedImageUrl = styleRes.renderedImageUrl;
-    } else if (p.mode === 'place_object') {
-      if (newObjPrepared && newObjPrepared.bgRemoved && !newObjPrepared.cutoutDataUrl) {
-        try {
-          const cutout = await removeBackgroundFromImageUrl(
-            newObjPrepared.rawImageUrl,
-            newObjPrepared.bgThreshold
-          );
-          newObjPrepared = { ...newObjPrepared, cutoutDataUrl: cutout };
-        } catch {
-          // ignore
+      // Step A: Structured Space & Constraint Analysis via Gemini 2.5 Flash (when key exists)
+      let gemAnalysisPlans: RearrangementVariant[] = [];
+      if (hasGeminiKey) {
+        const spaceAnalysis = await analyzeSpaceAndConstraints(
+          p.roomImageUrl,
+          p.calibration,
+          { promptText: p.promptText, selectedTags: p.selectedTags }
+        );
+        if (spaceAnalysis.source === 'gemini') {
+          parsedConstraints = spaceAnalysis.constraints;
+          gemAnalysisPlans = spaceAnalysis.rearrangementPlans;
+        } else if (spaceAnalysis.errorNote) {
+          geminiStatusNote = `空間分析已自動降級本地運算 (${spaceAnalysis.errorNote.slice(0, 60)})`;
         }
       }
-      if (newObjPrepared) {
-        placementZones = await renderer.analyzePlacementZones({
-          newObject: newObjPrepared,
-          existingFurniture: p.detectedFurniture,
+
+      // Step B: Local deterministic baseline setup + real Gemini Image generation
+      if (p.mode === 'rearrange') {
+        const localVariants = await renderer.generateRearrangements({
+          baseFurniture: p.detectedFurniture,
           calibration: p.calibration,
           masks: p.protectionMasks,
           constraints: parsedConstraints,
+          goal: p.rearrangementGoal,
         });
-        if (!selectedZoneId || !placementZones.some((z) => z.id === selectedZoneId)) {
-          selectedZoneId = placementZones[0]?.id ?? null;
+        variants =
+          gemAnalysisPlans.length >= 2 ? gemAnalysisPlans : localVariants;
+        activeVariantId = variants[0]?.id ?? null;
+        renderedImageUrl = p.roomImageUrl;
+      } else if (p.mode === 'style') {
+        const styleRes = await renderer.renderStyleTransfer({
+          roomImageUrl: p.roomImageUrl,
+          preset,
+          styleId: p.styleId,
+          styleIntensity: p.styleIntensity,
+          appliedMaterials: p.appliedMaterials,
+        });
+        renderedImageUrl = styleRes.renderedImageUrl;
+      } else if (p.mode === 'place_object') {
+        if (
+          newObjPrepared &&
+          newObjPrepared.bgRemoved &&
+          !newObjPrepared.cutoutDataUrl
+        ) {
+          try {
+            const cutout = await removeBackgroundFromImageUrl(
+              newObjPrepared.rawImageUrl,
+              newObjPrepared.bgThreshold
+            );
+            newObjPrepared = { ...newObjPrepared, cutoutDataUrl: cutout };
+          } catch {
+            // Keep raw URL on cutout fallback
+          }
+        }
+        if (newObjPrepared) {
+          placementZones = await renderer.analyzePlacementZones({
+            newObject: newObjPrepared,
+            existingFurniture: p.detectedFurniture,
+            calibration: p.calibration,
+            masks: p.protectionMasks,
+            constraints: parsedConstraints,
+          });
+          if (
+            !selectedZoneId ||
+            !placementZones.some((z) => z.id === selectedZoneId)
+          ) {
+            selectedZoneId = placementZones[0]?.id ?? null;
+          }
+        }
+        renderedImageUrl = p.roomImageUrl;
+      }
+
+      // Call gemini-2.5-flash-image to generate real photorealistic render when API key is configured
+      if (hasGeminiKey) {
+        const maskBase64 = await renderProtectionMasksToPngBase64(
+          p.protectionMasks
+        );
+        const activeVar = variants.find((v) => v.id === activeVariantId) || variants[0];
+        const chosenZone =
+          placementZones.find((z) => z.id === selectedZoneId) ||
+          placementZones[0];
+
+        const gemRender = await generateInteriorRender(
+          p.roomImageUrl,
+          maskBase64,
+          {
+            mode: p.mode,
+            styleId: p.styleId,
+            styleIntensity: p.styleIntensity,
+            rearrangementGoal: p.rearrangementGoal,
+            variantTitle: activeVar?.title,
+            variantRationale: activeVar?.rationale,
+            placedObjectName: newObjPrepared?.name,
+            placedObjectImageUrl:
+              newObjPrepared?.cutoutDataUrl || newObjPrepared?.rawImageUrl,
+            placedObjectDimensionsCm: newObjPrepared
+              ? {
+                  widthCm: newObjPrepared.widthCm,
+                  depthCm: newObjPrepared.depthCm,
+                  heightCm: newObjPrepared.heightCm,
+                }
+              : undefined,
+            placedZoneLabel: chosenZone?.label,
+            placedAnchor: p.customPlacedPos || chosenZone?.anchor,
+            lighting: p.lighting,
+            appliedMaterials: p.appliedMaterials,
+            protectionLabels: p.protectionMasks.map((m) => m.label),
+            customPrompt: p.promptText,
+          }
+        );
+
+        if (gemRender.source === 'gemini' && gemRender.renderedImageUrl) {
+          renderedImageUrl = gemRender.renderedImageUrl;
+          renderedByGemini = true;
+          geminiStatusNote = '✨ 已透過 Gemini 2.5 Flash Image 生成真實設計模擬圖';
+        } else if (gemRender.errorNote) {
+          geminiStatusNote = gemRender.errorNote;
         }
       }
-      renderedImageUrl = p.roomImageUrl;
-    }
 
-    // Visual product matching (Feature 10)
-    const searcher = new ProductSearchService();
-    const matchedProducts = await searcher.matchProducts({
-      furniture:
-        p.mode === 'rearrange' && variants[0]
-          ? variants[0].furniture
-          : p.detectedFurniture,
-      newObject: p.mode === 'place_object' ? newObjPrepared : null,
-      constraints: parsedConstraints,
-      styleId: p.styleId,
-    });
-
-    dispatch({
-      type: 'MUTATE_DESIGN',
-      updater: (prev) => ({
-        ...prev,
+      // Step C: Soft-Furnishing Visual Search & Taiwan BOM Pricing (Feature 10 & 11)
+      const searcher = new ProductSearchService();
+      let matchedProducts = await searcher.matchProducts({
+        furniture:
+          p.mode === 'rearrange' && variants[0]
+            ? variants[0].furniture
+            : p.detectedFurniture,
+        newObject: p.mode === 'place_object' ? newObjPrepared : null,
         constraints: parsedConstraints,
-        rearrangementVariants: variants,
-        activeVariantId,
-        renderedImageUrl,
-        newObject: newObjPrepared,
-        placementZones,
-        selectedZoneId,
-        customPlacedPos:
-          prev.customPlacedPos ||
-          placementZones.find((z) => z.id === selectedZoneId)?.anchor ||
-          null,
-        matchedProducts,
-        hasGenerated: true,
-      }),
-    });
+        styleId: p.styleId,
+      });
 
-    // Automatically capture a version snapshot on generation
-    const modeLabel =
-      p.mode === 'rearrange'
-        ? '傢俱重排優化'
-        : p.mode === 'style'
-          ? `風格轉換：${DESIGN_STYLES.find((s) => s.id === p.styleId)?.name}`
-          : `置入單品：${newObjPrepared?.name ?? '新物件'}`;
-    dispatch({
-      type: 'SAVE_SNAPSHOT',
-      label: modeLabel,
-    });
+      if (hasGeminiKey) {
+        const areaPing = estimateFloorAreaPing(p.calibration);
+        const gemBom = await generateBomAndShoppingList(
+          p.roomImageUrl,
+          renderedImageUrl,
+          areaPing,
+          parsedConstraints.maxBudgetTWD
+        );
+        if (gemBom.source === 'gemini') {
+          if (gemBom.matchedProducts.length > 0) {
+            matchedProducts = gemBom.matchedProducts;
+          }
+          if (gemBom.bomItems.length > 0) {
+            geminiBomItems = gemBom.bomItems;
+          }
+        }
+      }
 
-    dispatch({
-      type: 'SET_VIEW_MODE',
-      viewMode: p.mode === 'rearrange' ? 'floorplan' : 'perspective',
-    });
-    dispatch({ type: 'SET_STEP', step: 3 });
-    dispatch({ type: 'SET_PROCESSING', isProcessing: false });
+      dispatch({
+        type: 'MUTATE_DESIGN',
+        updater: (prev) => ({
+          ...prev,
+          constraints: parsedConstraints,
+          rearrangementVariants: variants,
+          activeVariantId,
+          renderedImageUrl,
+          renderedByGemini,
+          geminiStatusNote,
+          newObject: newObjPrepared,
+          placementZones,
+          selectedZoneId,
+          customPlacedPos:
+            prev.customPlacedPos ||
+            placementZones.find((z) => z.id === selectedZoneId)?.anchor ||
+            null,
+          matchedProducts,
+          geminiBomItems,
+          hasGenerated: true,
+        }),
+      });
+
+      // Automatically capture a version snapshot on generation
+      const modeLabel =
+        p.mode === 'rearrange'
+          ? '傢俱重排優化'
+          : p.mode === 'style'
+            ? `風格轉換：${DESIGN_STYLES.find((s) => s.id === p.styleId)?.name}`
+            : `置入單品：${newObjPrepared?.name ?? '新物件'}`;
+      dispatch({
+        type: 'SAVE_SNAPSHOT',
+        label: renderedByGemini ? `${modeLabel} (Gemini AI)` : modeLabel,
+      });
+
+      dispatch({
+        type: 'SET_VIEW_MODE',
+        viewMode:
+          p.mode === 'rearrange' && !renderedByGemini
+            ? 'floorplan'
+            : 'perspective',
+      });
+      dispatch({ type: 'SET_STEP', step: 3 });
+    } finally {
+      dispatch({ type: 'SET_PROCESSING', isProcessing: false });
+    }
   }, [state.aiConfig, state.present]);
 
   const refreshStyleRenderLive = useCallback(
@@ -1073,6 +1243,7 @@ export function usePlannerStore() {
           styleId: nextStyleId,
           styleIntensity: nextIntensity,
           renderedImageUrl: res.renderedImageUrl,
+          renderedByGemini: false,
           hasGenerated: true,
         }),
       });
@@ -1080,33 +1251,152 @@ export function usePlannerStore() {
     [state.aiConfig, state.present]
   );
 
+  /**
+   * Step 3 action: Re-renders current lighting Kelvin / daylight / material replacements via Gemini Image model.
+   * Gracefully falls back without error if USER_GEMINI_API_KEY is unconfigured or API fails.
+   */
+  const rerenderEffectsWithGemini = useCallback(
+    async (kind: 'lighting' | 'material_replace') => {
+      const p = state.present;
+      const hasKey = Boolean(getStoredGeminiApiKey());
+      if (!hasKey) {
+        dispatch({
+          type: 'MUTATE_DESIGN',
+          recordHistory: false,
+          updater: (prev) => ({
+            ...prev,
+            geminiStatusNote:
+              '尚未設定 Gemini API Key，光影色溫與局部換材目前使用本地即時 Canvas 疊層預覽。',
+          }),
+        });
+        return;
+      }
+
+      dispatch({
+        type: 'SET_PROCESSING',
+        isProcessing: true,
+        message:
+          kind === 'lighting'
+            ? `Gemini 影像模型正在重繪 ${p.lighting.kelvin}K 光影色溫與日照效果...`
+            : 'Gemini 影像模型正在鎖定結構遮罩並進行局部表面材質精準替換...',
+      });
+
+      try {
+        const maskBase64 = await renderProtectionMasksToPngBase64(
+          p.protectionMasks
+        );
+        const sourceBase =
+          p.renderedByGemini && p.renderedImageUrl
+            ? p.renderedImageUrl
+            : p.roomImageUrl;
+
+        const gemRes = await generateInteriorRender(sourceBase, maskBase64, {
+          mode: kind,
+          styleId: p.styleId,
+          lighting: p.lighting,
+          appliedMaterials: p.appliedMaterials,
+          protectionLabels: p.protectionMasks.map((m) => m.label),
+          customPrompt: p.promptText,
+        });
+
+        if (gemRes.source === 'gemini' && gemRes.renderedImageUrl) {
+          dispatch({
+            type: 'MUTATE_DESIGN',
+            updater: (prev) => ({
+              ...prev,
+              renderedImageUrl: gemRes.renderedImageUrl,
+              renderedByGemini: true,
+              hasGenerated: true,
+              geminiStatusNote:
+                kind === 'lighting'
+                  ? `✨ 已透過 Gemini 精繪 ${p.lighting.kelvin}K 光影氛圍`
+                  : '✨ 已透過 Gemini 完成局部材質精準重繪',
+            }),
+          });
+        } else {
+          dispatch({
+            type: 'MUTATE_DESIGN',
+            recordHistory: false,
+            updater: (prev) => ({
+              ...prev,
+              geminiStatusNote:
+                gemRes.errorNote ||
+                'Gemini 影像更新未回傳結果，維持本地即時圖層預覽。',
+            }),
+          });
+        }
+      } finally {
+        dispatch({ type: 'SET_PROCESSING', isProcessing: false });
+      }
+    },
+    [state.present]
+  );
+
   const runProductVisualSearch = useCallback(async () => {
+    const hasKey = Boolean(getStoredGeminiApiKey());
     dispatch({
       type: 'SET_PROCESSING',
       isProcessing: true,
-      message: '正在比對 IKEA / 無印良品 / 宜得利 實體尺寸規格並計算 BOM 預算...',
+      message: hasKey
+        ? 'Gemini 2.5 Flash 正在比對前後圖差異並生成台灣市場採購與 BOM 預算表...'
+        : '正在比對 IKEA / 無印良品 / 宜得利 實體尺寸規格並計算 BOM 預算...',
     });
-    const searcher = new ProductSearchService();
-    const matched = await searcher.matchProducts({
-      furniture: activeFurniture,
-      newObject:
-        state.present.mode === 'place_object' ? state.present.newObject : null,
-      constraints: state.present.constraints,
-      styleId: state.present.styleId,
-    });
-    dispatch({
-      type: 'MUTATE_DESIGN',
-      updater: (prev) => ({
-        ...prev,
-        matchedProducts: matched,
-      }),
-    });
-    dispatch({ type: 'SET_PROCESSING', isProcessing: false });
+    try {
+      const searcher = new ProductSearchService();
+      let matched = await searcher.matchProducts({
+        furniture: activeFurniture,
+        newObject:
+          state.present.mode === 'place_object' ? state.present.newObject : null,
+        constraints: state.present.constraints,
+        styleId: state.present.styleId,
+      });
+      let geminiBomItems: BomLineItem[] | null = null;
+      let statusNote = state.present.geminiStatusNote;
+
+      if (hasKey) {
+        const areaPing = estimateFloorAreaPing(state.present.calibration);
+        const gemBom = await generateBomAndShoppingList(
+          state.present.roomImageUrl,
+          state.present.renderedImageUrl,
+          areaPing,
+          state.present.constraints.maxBudgetTWD
+        );
+        if (gemBom.source === 'gemini') {
+          if (gemBom.matchedProducts.length > 0) {
+            matched = gemBom.matchedProducts;
+          }
+          if (gemBom.bomItems.length > 0) {
+            geminiBomItems = gemBom.bomItems;
+          }
+          if (gemBom.summaryNote) {
+            statusNote = gemBom.summaryNote;
+          }
+        } else if (gemBom.errorNote) {
+          statusNote = gemBom.errorNote;
+        }
+      }
+
+      dispatch({
+        type: 'MUTATE_DESIGN',
+        updater: (prev) => ({
+          ...prev,
+          matchedProducts: matched,
+          geminiBomItems,
+          geminiStatusNote: statusNote,
+        }),
+      });
+    } finally {
+      dispatch({ type: 'SET_PROCESSING', isProcessing: false });
+    }
   }, [
     activeFurniture,
+    state.present.calibration,
     state.present.constraints,
+    state.present.geminiStatusNote,
     state.present.mode,
     state.present.newObject,
+    state.present.renderedImageUrl,
+    state.present.roomImageUrl,
     state.present.styleId,
   ]);
 
@@ -1159,6 +1449,7 @@ export function usePlannerStore() {
       toggleProductInBom,
       executeSimulationPipeline,
       refreshStyleRenderLive,
+      rerenderEffectsWithGemini,
       runProductVisualSearch,
     },
   };

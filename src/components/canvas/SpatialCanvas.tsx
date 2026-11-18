@@ -52,6 +52,7 @@ interface SpatialCanvasProps {
   layers: LayerVisibility;
   roomImageUrl: string;
   renderedImageUrl: string | null;
+  renderedByGemini?: boolean;
   hasGenerated: boolean;
   mode: DesignMode;
   calibration: ScaleCalibration;
@@ -101,6 +102,7 @@ export const SpatialCanvas: React.FC<SpatialCanvasProps> = ({
   layers,
   roomImageUrl,
   renderedImageUrl,
+  renderedByGemini = false,
   hasGenerated,
   mode,
   calibration,
@@ -311,12 +313,14 @@ export const SpatialCanvas: React.FC<SpatialCanvasProps> = ({
   );
 
   const displayRenderedUrl = renderedImageUrl || roomImageUrl;
+  const hasDistinctRender = Boolean(
+    renderedImageUrl && renderedImageUrl !== roomImageUrl
+  );
   const activeSplitView =
-    mode === 'style' &&
     hasGenerated &&
     showBeforeAfter &&
     viewMode === 'perspective' &&
-    Boolean(renderedImageUrl);
+    hasDistinctRender;
 
   const placedPos =
     customPlacedPos ||
@@ -387,7 +391,7 @@ export const SpatialCanvas: React.FC<SpatialCanvasProps> = ({
             <span>2D 俯視平面圖</span>
           </button>
 
-          {hasGenerated && viewMode === 'perspective' && mode === 'style' && (
+          {hasGenerated && viewMode === 'perspective' && hasDistinctRender && (
             <>
               <div
                 className="w-px h-4 mx-1"
@@ -903,8 +907,8 @@ export const SpatialCanvas: React.FC<SpatialCanvasProps> = ({
                   );
                 })}
 
-                {/* Synthesized Background-Removed Cutout Object */}
-                {newObject && placedPos && (
+                {/* Synthesized Background-Removed Cutout Object (hidden when Gemini Image already baked it into renderedImageUrl) */}
+                {newObject && placedPos && !renderedByGemini && (
                   <div
                     onPointerDown={(e) => {
                       e.stopPropagation();

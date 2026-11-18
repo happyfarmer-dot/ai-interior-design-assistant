@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import {
   ArrowLeft,
   Box,
+  Camera,
   CheckCircle2,
   Code2,
   Lock,
@@ -28,6 +29,10 @@ import type {
   RearrangementGoal,
 } from '../../types/planner';
 import { readImageFile } from '../../utils/imageProcessing';
+import {
+  isNativeCapacitor,
+  pickPhotoWithCapacitor,
+} from '../../utils/nativePlatform';
 
 interface Step2DesignModePanelProps {
   mode: DesignMode;
@@ -87,6 +92,7 @@ export const Step2DesignModePanel: React.FC<Step2DesignModePanelProps> = ({
 }) => {
   const itemFileRef = useRef<HTMLInputElement | null>(null);
   const [showJson, setShowJson] = useState(true);
+  const [objectCameraError, setObjectCameraError] = useState<string | null>(null);
 
   const handleToggleTag = (tagId: string) => {
     const exists = selectedTags.includes(tagId);
@@ -106,17 +112,12 @@ export const Step2DesignModePanel: React.FC<Step2DesignModePanelProps> = ({
     onParseConstraints(nextPrompt, nextTags);
   };
 
-  const handleUploadObjectPhoto = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const res = await readImageFile(file);
+  const applyUploadedObjectDataUrl = async (dataUrl: string, fileName: string) => {
     const candidate: NewObjectCandidate = {
       id: `custom_obj_${Date.now()}`,
-      name: file.name.replace(/\.[^.]+$/, ''),
+      name: fileName.replace(/\.[^.]+$/, ''),
       category: 'accent_chair',
-      rawImageUrl: res.dataUrl,
+      rawImageUrl: dataUrl,
       cutoutDataUrl: null,
       bgRemoved: true,
       bgThreshold: 234,
@@ -126,7 +127,34 @@ export const Step2DesignModePanel: React.FC<Step2DesignModePanelProps> = ({
       priceTWD: 8500,
     };
     await onSelectNewObject(candidate);
+  };
+
+  const handleUploadObjectPhoto = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setObjectCameraError(null);
+    const res = await readImageFile(file);
+    await applyUploadedObjectDataUrl(res.dataUrl, file.name);
     e.target.value = '';
+  };
+
+  const handleNativeObjectPhoto = async (source: 'camera' | 'photos') => {
+    setObjectCameraError(null);
+    if (source === 'photos' && !isNativeCapacitor()) {
+      itemFileRef.current?.click();
+      return;
+    }
+    try {
+      const picked = await pickPhotoWithCapacitor(source);
+      if (picked.cancelled || !picked.dataUrl) return;
+      await applyUploadedObjectDataUrl(picked.dataUrl, picked.fileName);
+    } catch (err) {
+      setObjectCameraError(
+        err instanceof Error ? err.message : '無法啟動相機或讀取相簿單品圖'
+      );
+    }
   };
 
   return (
@@ -398,23 +426,39 @@ export const Step2DesignModePanel: React.FC<Step2DesignModePanelProps> = ({
               borderColor: 'var(--border-subtle)',
             }}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold">
                 欲添購單品選擇與去背合成（功能 3）
               </span>
-              <button
-                type="button"
-                onClick={() => itemFileRef.current?.click()}
-                className="flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] cursor-pointer"
-                style={{
-                  backgroundColor: 'var(--bg-panel)',
-                  borderColor: 'var(--border-strong)',
-                  color: 'var(--text-primary)',
-                }}
-              >
-                <Upload className="w-3 h-3" />
-                <span>上傳單品圖</span>
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleNativeObjectPhoto('camera')}
+                  title="開啟手機相機拍攝單品"
+                  className="flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--bg-panel)',
+                    borderColor: 'var(--border-strong)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <Camera className="w-3 h-3 text-amber-400" />
+                  <span>拍照</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNativeObjectPhoto('photos')}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--bg-panel)',
+                    borderColor: 'var(--border-strong)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>上傳單品圖</span>
+                </button>
+              </div>
               <input
                 ref={itemFileRef}
                 type="file"
@@ -423,6 +467,11 @@ export const Step2DesignModePanel: React.FC<Step2DesignModePanelProps> = ({
                 className="hidden"
               />
             </div>
+            {objectCameraError && (
+              <div className="p-2 rounded-lg border border-red-500/40 bg-red-500/10 text-[11px] text-red-300">
+                {objectCameraError}
+              </div>
+            )}
 
             {/* Built-in Objects */}
             <div className="grid grid-cols-3 gap-1.5">

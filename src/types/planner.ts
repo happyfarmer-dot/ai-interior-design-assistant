@@ -269,7 +269,7 @@ export interface ErgonomicsReport {
 
 export interface MatchedProduct {
   id: string;
-  brand: 'IKEA' | '無印良品 MUJI' | '宜得利 NITORI' | '有情門' | 'MR. LIVING';
+  brand: 'IKEA' | '無印良品 MUJI' | '宜得利 NITORI' | '有情門' | 'MR. LIVING' | string;
   name: string;
   category: FurnitureCategory;
   widthCm: number;
@@ -283,6 +283,8 @@ export interface MatchedProduct {
   colorHex: string;
   selectedForBom: boolean;
   urlSlug: string;
+  searchKeyword?: string;
+  searchUrl?: string;
 }
 
 export interface BomLineItem {
@@ -328,8 +330,16 @@ export interface DesignSnapshot {
   stateDigest: PlannerDesignState;
 }
 
+export type GeminiConnectionStatus =
+  | 'unconfigured'
+  | 'testing'
+  | 'connected'
+  | 'error';
+
 export interface AiServiceConfig {
   mode: 'mock' | 'live';
+  geminiStatus: GeminiConnectionStatus;
+  geminiStatusDetail?: string;
   visionEndpoint: string;
   visionApiKey: string;
   renderEndpoint: string;
@@ -375,7 +385,10 @@ export interface PlannerDesignState {
 
   hasGenerated: boolean;
   renderedImageUrl: string | null;
+  renderedByGemini?: boolean;
+  geminiStatusNote?: string | null;
   matchedProducts: MatchedProduct[];
+  geminiBomItems?: BomLineItem[] | null;
 }
 
 export interface PlannerStoreState {

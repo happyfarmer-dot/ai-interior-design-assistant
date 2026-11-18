@@ -109,7 +109,10 @@ export const ProposalPreviewModal: React.FC<ProposalPreviewModalProps> = ({
                     alt="設計模擬"
                     className="w-full h-full object-cover"
                   />
-                  {design.mode === 'place_object' && design.newObject && (design.customPlacedPos || design.placementZones[0]) && (() => {
+                  {design.mode === 'place_object' &&
+                    !design.renderedByGemini &&
+                    design.newObject &&
+                    (design.customPlacedPos || design.placementZones[0]) && (() => {
                     const pos = design.customPlacedPos || design.placementZones[0].anchor;
                     return (
                       <img
@@ -206,8 +209,20 @@ export const ProposalPreviewModal: React.FC<ProposalPreviewModalProps> = ({
                     <tr key={p.id}>
                       <td className="border border-slate-200 p-2 font-medium">{p.brand}</td>
                       <td className="border border-slate-200 p-2">
-                        {p.name}
-                        <div className="text-[10px] text-slate-500">{p.material}</div>
+                        <div>{p.name}</div>
+                        <div className="text-[10px] text-slate-500 flex items-center gap-2">
+                          <span>{p.material}</span>
+                          {(p.searchUrl || p.urlSlug) && (
+                            <a
+                              href={p.searchUrl || p.urlSlug}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-amber-700 underline"
+                            >
+                              關鍵字搜尋連結
+                            </a>
+                          )}
+                        </div>
                       </td>
                       <td className="border border-slate-200 p-2 text-center font-mono-cad">
                         {p.widthCm}×{p.depthCm}×{p.heightCm}

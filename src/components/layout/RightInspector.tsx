@@ -5,6 +5,7 @@ import type {
   PlannerStoreState,
 } from '../../types/planner';
 import type { usePlannerStore } from '../../state/usePlannerStore';
+import type { CsvExportResult } from '../../utils/proposalExport';
 import { Step1CalibrationPanel } from '../panels/Step1CalibrationPanel';
 import { Step2DesignModePanel } from '../panels/Step2DesignModePanel';
 import { Step3SimulationPanel } from '../panels/Step3SimulationPanel';
@@ -16,6 +17,7 @@ interface RightInspectorProps {
   bomSummary: BomSummary;
   actions: ReturnType<typeof usePlannerStore>['actions'];
   onOpenProposal: () => void;
+  onExportCsv: () => Promise<CsvExportResult | void> | void;
   onExportJson: () => void;
 }
 
@@ -25,6 +27,7 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
   bomSummary,
   actions,
   onOpenProposal,
+  onExportCsv,
   onExportJson,
 }) => {
   const { present, step } = state;
@@ -102,12 +105,14 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
           constraints={present.constraints}
           activeTool={state.activeTool}
           viewMode={state.viewMode}
+          geminiStatusNote={present.geminiStatusNote}
           onSelectVariant={actions.selectVariant}
           onSelectZone={actions.selectPlacementZone}
           onRefreshStyleLive={actions.refreshStyleRenderLive}
           onUpdateLighting={actions.updateLighting}
           onSelectMaterialSurface={actions.setSelectedMaterialSurface}
           onApplyMaterial={actions.applyMaterialSwatch}
+          onRerenderEffectsWithGemini={actions.rerenderEffectsWithGemini}
           onSelectTool={actions.setTool}
           onSetViewMode={actions.setViewMode}
           onPrevStep={() => actions.setStep(2)}
@@ -119,9 +124,11 @@ export const RightInspector: React.FC<RightInspectorProps> = ({
         <Step4ProcurementPanel
           matchedProducts={present.matchedProducts}
           bomSummary={bomSummary}
+          geminiStatusNote={present.geminiStatusNote}
           onRefreshProductSearch={actions.runProductVisualSearch}
           onToggleProductInBom={actions.toggleProductInBom}
           onExportProposalPdf={onOpenProposal}
+          onExportCsv={onExportCsv}
           onExportJson={onExportJson}
           onPrevStep={() => actions.setStep(3)}
         />

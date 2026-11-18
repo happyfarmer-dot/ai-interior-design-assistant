@@ -9,6 +9,7 @@ import {
   LayoutGrid,
   PaintBucket,
   ShieldAlert,
+  Sparkles,
   Sun,
 } from 'lucide-react';
 import { DESIGN_STYLES, MATERIAL_SWATCHES } from '../../data/presets';
@@ -43,12 +44,14 @@ interface Step3SimulationPanelProps {
   constraints: DesignConstraints;
   activeTool: CanvasTool;
   viewMode: ViewMode;
+  geminiStatusNote?: string | null;
   onSelectVariant: (id: string) => void;
   onSelectZone: (id: string) => void;
   onRefreshStyleLive: (styleId: DesignStyleId, intensity: number) => void;
   onUpdateLighting: (patch: Partial<LightingState>) => void;
   onSelectMaterialSurface: (surface: MaterialSurfaceType) => void;
   onApplyMaterial: (surface: MaterialSurfaceType, swatchId: string | null) => void;
+  onRerenderEffectsWithGemini: (kind: 'lighting' | 'material_replace') => void;
   onSelectTool: (tool: CanvasTool) => void;
   onSetViewMode: (v: ViewMode) => void;
   onPrevStep: () => void;
@@ -90,12 +93,14 @@ export const Step3SimulationPanel: React.FC<Step3SimulationPanelProps> = ({
   constraints,
   activeTool,
   viewMode,
+  geminiStatusNote,
   onSelectVariant,
   onSelectZone,
   onRefreshStyleLive,
   onUpdateLighting,
   onSelectMaterialSurface,
   onApplyMaterial,
+  onRerenderEffectsWithGemini,
   onSelectTool,
   onSetViewMode,
   onPrevStep,
@@ -114,6 +119,22 @@ export const Step3SimulationPanel: React.FC<Step3SimulationPanelProps> = ({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
+        {geminiStatusNote && (
+          <div
+            className="p-2.5 rounded-xl border text-[11px] flex items-start gap-2 leading-relaxed"
+            style={{
+              backgroundColor: 'var(--accent-cobalt-soft)',
+              borderColor: 'var(--accent-cobalt)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <Sparkles
+              className="w-3.5 h-3.5 shrink-0 mt-0.5"
+              style={{ color: 'var(--accent-cobalt)' }}
+            />
+            <span>{geminiStatusNote}</span>
+          </div>
+        )}
         {/* 1. Mode Results Summary (Rearrangement Variants / Style Quick Switch / Placement Zones) */}
         {mode === 'rearrange' && rearrangementVariants.length > 0 && (
           <section className="space-y-2.5">
@@ -482,6 +503,19 @@ export const Step3SimulationPanel: React.FC<Step3SimulationPanelProps> = ({
                 {lighting.intensity}%
               </span>
             </div>
+            <button
+              type="button"
+              onClick={() => onRerenderEffectsWithGemini('lighting')}
+              className="w-full mt-2 py-2 px-3 rounded-lg border text-[11px] font-medium flex items-center justify-center gap-1.5 cursor-pointer"
+              style={{
+                backgroundColor: 'var(--accent-cobalt-soft)',
+                borderColor: 'var(--accent-cobalt)',
+                color: 'var(--accent-cobalt)',
+              }}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Gemini AI 實景重繪目前光影與色溫</span>
+            </button>
           </div>
         </section>
 
@@ -620,6 +654,19 @@ export const Step3SimulationPanel: React.FC<Step3SimulationPanelProps> = ({
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => onRerenderEffectsWithGemini('material_replace')}
+              className="w-full mt-2 py-2 px-3 rounded-lg border text-[11px] font-medium flex items-center justify-center gap-1.5 cursor-pointer"
+              style={{
+                backgroundColor: 'var(--accent-cobalt-soft)',
+                borderColor: 'var(--accent-cobalt)',
+                color: 'var(--accent-cobalt)',
+              }}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Gemini AI 實景重繪局部材質替換</span>
+            </button>
           </div>
         </section>
       </div>
